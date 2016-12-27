@@ -1,4 +1,5 @@
-defmodule ExpdfTest do
+defmodule DocTest do
   use ExUnit.Case
   doctest Expdf
 end
+
