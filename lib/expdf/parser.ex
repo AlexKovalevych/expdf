@@ -11,7 +11,10 @@ defmodule Expdf.Parser do
         case get_xref_data(pdf_data) do
           {:error, reason} -> {:error, reason}
           {:ok, xref} ->
-            get_objects(pdf_data, %__MODULE__{xref: xref, objects: %{}})
+            case get_objects(pdf_data, %__MODULE__{xref: xref, objects: Keyword.new()}) do
+              {:error, reason} -> {:error, reason}
+              struct -> {:ok, %{struct | objects: Enum.reverse(struct.objects)}}
+            end
         end
     end
   end
@@ -33,7 +36,7 @@ defmodule Expdf.Parser do
         {:error, reason} ->
           {:halt, {:error, reason}}
         {:ok, new_obj} ->
-          {:cont, %{acc | objects: Map.put(acc.objects, obj, new_obj)}}
+          {:cont, %{acc | objects: Keyword.put(acc.objects, String.to_atom(obj), new_obj)}}
       end
     end)
   end

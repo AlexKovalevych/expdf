@@ -29,7 +29,8 @@ defmodule Expdf.Mixfile do
   defp deps do
     [
       {:ex_doc, "~> 0.14.4"},
-      {:hexate, "~> 0.6.1"}
+      {:html_entities, "~> 0.3"},
+      {:timex, "~> 3.1"}
     ]
   end
 end

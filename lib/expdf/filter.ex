@@ -114,7 +114,7 @@ defmodule Expdf.Filter do
         with {:ok, data} <- ascii_hex_eod(data, eod),
              {:ok, data} <- ascii_check_invalid_chars(data) do
               # get one byte of binary data for each pair of ASCII hexadecimal digits
-              Hexate.encode(data)
+              Base.encode16(data)
         else
           {:error, reason} -> {:error, reason}
         end
