@@ -1,6 +1,8 @@
 defmodule Expdf.ElementString do
   alias Expdf.Font
 
+  @derive [Expdf.Element]
+
   defstruct [:val]
 
   def parse(content, offset \\ 0) do

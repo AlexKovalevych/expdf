@@ -9,3 +9,8 @@ end
 defimpl Expdf.Element, for: Any do
   def content(%{val: val}), do: val
 end
+
+defmodule Expdf.ElementParser do
+  def parse(content, document, position, only_values) do
+  end
+end

@@ -33,7 +33,7 @@ defmodule Expdf.ElementDate do
             byte_size(name) == 18 && Regex.match?(~r/[^\+-]0000$/, name) -> binary_part(name, 0, byte_size(name) - 4)
             true -> name
           end
-          format = @formats[String.to_atom(byte_size(name))]
+          format = @formats[name |> byte_size |> to_string |> String.to_atom]
           case Timex.parse(name, format, :strftime) do
             {:ok, date} ->
               pos = case :binary.match(content, "(D:") do

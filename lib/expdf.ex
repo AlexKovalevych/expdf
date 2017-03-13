@@ -45,10 +45,15 @@ defmodule Expdf do
   defp parse_objects(%Parser{objects: objects} = parser) do
     objects
     |> Enum.reduce([], fn {id, structure}, acc ->
+      #if id == :"3_0" do
+        IO.inspect(id)
+        #System.halt()
+      #end
       structure
       |> Enum.with_index
       |> Enum.reduce(Keyword.new(), fn {part, i}, objects ->
         {obj_type, obj_val, obj_offset, _} = part
+        #IO.inspect(obj_type)
         {header, content} = case obj_type do
           "[" ->
             elements = Enum.reduce(obj_val, [], fn sub_element, elements ->
@@ -57,16 +62,19 @@ defmodule Expdf do
             end)
           "<<" ->
             {parse_header(obj_val), ""}
+          "stream" ->
+              System.halt()
         end
-        if !Keyword.has_key?(objects, id) do
-          obj = Object.new(parser, header, content)
-          #Keyword.put(objects, id, Object.new(parser, header, content))
-          IO.inspect(obj)
-          Keyword.put(objects, id, obj)
-        else
+        #if !Keyword.has_key?(objects, id) do
+          #obj = Object.new(parser, header, content)
+          ##Keyword.put(objects, id, Object.new(parser, header, content))
+          #IO.inspect(obj)
+          #Keyword.put(objects, id, obj)
+        #else
           objects
-        end
+        #end
       end)
+
     end)
   end
 
@@ -110,7 +118,6 @@ defmodule Expdf do
         values = Enum.reduce(val, [], fn {sub_type, sub_val, _, _}, acc ->
           [parse_header_element(sub_type, sub_val) | acc]
         end)
-        IO.inspect(values)
         %ElementArray{val: Enum.reverse(values)}
 
       "objref" -> %ElementXref{val: val}
