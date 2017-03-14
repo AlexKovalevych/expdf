@@ -44,37 +44,37 @@ defmodule Expdf do
 
   defp parse_objects(%Parser{objects: objects} = parser) do
     objects
-    |> Enum.reduce([], fn {id, structure}, acc ->
-      #if id == :"3_0" do
-        IO.inspect(id)
+    |> Enum.reduce(%{}, fn {id, structure}, acc ->
+      #if id == :"5_0" do
+        #IO.inspect(structure)
         #System.halt()
       #end
-      structure
+      {header, content} = structure
       |> Enum.with_index
-      |> Enum.reduce(Keyword.new(), fn {part, i}, objects ->
-        {obj_type, obj_val, obj_offset, _} = part
-        #IO.inspect(obj_type)
-        {header, content} = case obj_type do
+      |> Enum.reduce_while({%Header{}, ""}, fn {part, i}, {header, content} ->
+        {obj_type, obj_val, obj_offset, content} = part
+        {new_header, new_content, break} = case obj_type do
           "[" ->
             elements = Enum.reduce(obj_val, [], fn sub_element, elements ->
               IO.inspect(sub_element)
               System.halt()
             end)
           "<<" ->
-            {parse_header(obj_val), ""}
+            {parse_header(obj_val), "", false}
           "stream" ->
+            content = Enum.at(content, 0, obj_val)
+            IO.inspect(header)
+            #IO.inspect(objects)
               System.halt()
         end
-        #if !Keyword.has_key?(objects, id) do
-          #obj = Object.new(parser, header, content)
-          ##Keyword.put(objects, id, Object.new(parser, header, content))
-          #IO.inspect(obj)
-          #Keyword.put(objects, id, obj)
-        #else
-          objects
-        #end
+        if break, do: {:halt, {header, content}}, else: {:cont, {header, content}}
       end)
-
+      if !Map.has_key?(acc, id) do
+        obj = Object.new(parser, header, content)
+        Map.put(acc, id, obj)
+      else
+        acc
+      end
     end)
   end
 
@@ -127,8 +127,10 @@ defmodule Expdf do
 
   defp float_val(value) do
     case Regex.run(~r/^[0-9.]+/, value) do
-      {float, _} -> Float.parse(float)
-      _ -> 0
+      [float] ->
+        {float, _} = Float.parse(float)
+        float
+      _ -> 0.0
     end
   end
 
