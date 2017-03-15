@@ -1,17 +1,8 @@
-defprotocol Expdf.Element do
-  @doc """
-  Get content of element
-  """
-  def content(element)
+defmodule Expdf.Element do
+  alias Expdf.Header
+  alias Expdf.Font
 
-end
-
-defimpl Expdf.Element, for: Any do
-  def content(%{val: val}), do: val
-end
-
-defmodule Expdf.ElementParser do
-  @formats [
+  @date_formats [
     "4": "%Y",
     "6": "%Y%m",
     "8": "%Y%m%d",
@@ -24,8 +15,124 @@ defmodule Expdf.ElementParser do
     "19": "%Y%m%d%H%M%S%z",
   ]
 
-  def parse(type, content, offset \\ 0) do
+  #def content(:font_TrueType, header, content) do
+  #end
+
+  def content(nil), do: ""
+
+  def content({:name, content, _}) do
+    content
+  end
+
+  def parse_all(content, offset, only_values? \\ false) when is_binary(content) do
+    #do {
+        #$old_position = $position;
+
+        #if (!$only_values) {
+            #if (!preg_match('/^\s*(?P<name>\/[A-Z0-9\._]+)(?P<value>.*)/si', substr($content, $position), $match)) {
+                #break;
+            #} else {
+                #$name     = ltrim($match['name'], '/');
+                #$value    = $match['value'];
+                #$position = strpos($content, $value, $position + strlen($match['name']));
+            #}
+        #} else {
+            #$name  = count($values);
+            #$value = substr($content, $position);
+        #}
+
+        #if ($element = ElementName::parse($value, $document, $position)) {
+            #$values[$name] = $element;
+        #} elseif ($element = ElementXRef::parse($value, $document, $position)) {
+            #$values[$name] = $element;
+        #} elseif ($element = ElementNumeric::parse($value, $document, $position)) {
+            #$values[$name] = $element;
+        #} elseif ($element = ElementStruct::parse($value, $document, $position)) {
+            #$values[$name] = $element;
+        #} elseif ($element = ElementBoolean::parse($value, $document, $position)) {
+            #$values[$name] = $element;
+        #} elseif ($element = ElementNull::parse($value, $document, $position)) {
+            #$values[$name] = $element;
+        #} elseif ($element = ElementDate::parse($value, $document, $position)) {
+            #$values[$name] = $element;
+        #} elseif ($element = ElementString::parse($value, $document, $position)) {
+            #$values[$name] = $element;
+        #} elseif ($element = ElementHexa::parse($value, $document, $position)) {
+            #$values[$name] = $element;
+        #} elseif ($element = ElementArray::parse($value, $document, $position)) {
+            #$values[$name] = $element;
+        #} else {
+            #$position = $old_position;
+            #break;
+        #}
+    #} while ($position < strlen($content));
+
+    #return $values;
+  end
+
+  def parse(type, content, offset \\ 0) when is_atom(type) do
     parse_type(type, content, offset)
+  end
+
+  defp parse_array(:array, content, offset) do
+    case Regex.named_captures(~r/^\s*\[(?P<array>.*)/is, content) do
+      nil -> false
+      %{"array" => array} ->
+        matches = Regex.scan(~r/(.*?)(\[|\])/s, String.trim(content))
+        |> Enum.map(fn match -> hd(match) end)
+        sub = Enum.reduce_while(matches, {"", 0}, fn part, {sub, level} ->
+          new_sub = "#{sub}#{part}"
+          i = if String.match?(~r/\[/, part), do: 1, else: -1
+          level = level + i
+          if level <= 0, do: {:halt, new_sub}, else: {:cont, {new_sub, level}}
+        end)
+
+        # Removes 1 level [ and ].
+        sub = String.trim(sub)
+        sub = String.slice(sub, 1..String.length(sub) - 2)
+        values = parse_all(sub, 0, true)
+        offset = case :binary.match(content, "[") do
+          {pos, 1} -> offset + pos + 1
+          :nomatch -> offset
+        end
+
+        # Find next ']' position
+        offset = offset + String.length(sub) + 1
+        {:array, values, offset}
+    end
+  end
+
+  defp parse_type(:struct, content, offset) do
+    case Regex.named_captures(~r/^\s*<<(?P<struct>.*)/is, content) do
+      nil -> false
+      %{"struct" => struct} ->
+        matches = Regex.scan(~r/(.*?)(<<|>>)/s, String.trim(content))
+                  |> Enum.map(fn match -> hd(match) end)
+        sub = Enum.reduce_while(matches, {"", 0}, fn part, {sub, level} ->
+          new_sub = "#{sub}#{part}"
+          i = if String.match?(~r/<</, part), do: 1, else: -1
+          level = level + i
+          if level <= 0, do: {:halt, new_sub}, else: {:cont, {new_sub, level}}
+        end)
+
+        {pos, _} = :binary.match(content, "<<")
+        offset = offset + pos + byte_size(String.trim_trailing(sub))
+
+        # Removes '<<' and '>>'.
+        sub = String.trim(String.replace(~r/^\s*<<(.*)>>\s*$/s, "\\1", sub))
+        elements = parse_all(sub, 0)
+        {:header, %Header{elements: elements}, offset}
+    end
+  end
+
+  defp parse_type(:name, content, offset) do
+    case Regex.named_captures(~r/^\s*\/(?P<name>[A-Z0-9\-\+,#\.]+)/is, content) do
+      nil -> false
+      %{"name" => name} ->
+        {pos, _} = :binary.match(content, name)
+        offset = offset + pos + byte_size(name)
+        {:name, Font.decode_entities(name), offset}
+    end
   end
 
   defp parse_type(:date, content, offset) do
@@ -43,7 +150,7 @@ defmodule Expdf.ElementParser do
             byte_size(name) == 18 && Regex.match?(~r/[^\+-]0000$/, name) -> binary_part(name, 0, byte_size(name) - 4)
             true -> name
           end
-          format = @formats[name |> byte_size |> to_string |> String.to_atom]
+          format = @date_formats[name |> byte_size |> to_string |> String.to_atom]
           case Timex.parse(name, format, :strftime) do
             {:ok, date} ->
               pos = case :binary.match(content, "(D:") do
@@ -51,7 +158,7 @@ defmodule Expdf.ElementParser do
                 {pos, _} -> pos
               end
               offset = offset + pos + byte_size(match_name) + 4 # 1 for '(D:' and ')'
-              [:date, date, offset]
+              {:date, date, offset}
             {:error, _} -> false
           end
         else
@@ -65,7 +172,7 @@ defmodule Expdf.ElementParser do
                   {pos, _} -> pos
                 end
                 offset = offset + pos + byte_size(match_name) + 4 # 1 for '(D:' and ')'
-                [:date, date, offset]
+                {:date, date, offset}
               {:error, _} -> false
             end
           else
@@ -103,12 +210,19 @@ defmodule Expdf.ElementParser do
                |> Font.decode_entities()
                |> Font.decode_hexadecimal(false)
                |> Font.decode_unicode()
-        [:string, name, offset]
+        {:string, name, offset}
     end
   end
 
-  #def parse(content, document, position, only_values \\ false) do
-  #end
+  defp parse_type(:xref, content, offset) do
+    case Regex.named_captures(~r/^\s*(?P<id>[0-9]+\s+[0-9]+\s+R)/s, content) do
+      nil -> false
+      %{"id" => id} ->
+        {pos, _} = :binary.match(content, id)
+        offset = offset + pos + byte_size(id)
+        {:xref, :binary.replace(String.trim_trailing(id, " R"), " ", "_"), offset}
+    end
+  end
 
   defp start_pos(name, cur_start_pos, start_search_end) do
     name_offset = binary_part(name, start_search_end, byte_size(name) - start_search_end)
@@ -120,4 +234,5 @@ defmodule Expdf.ElementParser do
         if rem(String.length(escape), 2) == 0, do: pos, else: start_pos(name, pos, pos + 1)
     end
   end
+
 end

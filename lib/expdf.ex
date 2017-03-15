@@ -3,16 +3,8 @@ defmodule Expdf do
     Parser,
     Header,
     Object,
-    ElementDate,
-    ElementName,
-    ElementXref,
-    ElementString,
-    ElementBoolean,
-    ElementNumeric,
-    ElementNil,
-    ElementArray,
-    ElementMissing,
     ElementHexa,
+    Element,
   }
 
   @doc """
@@ -30,9 +22,9 @@ defmodule Expdf do
   def parse(data) do
     with {:ok, parsed_data} <- Parser.parse(data),
          :ok <- check_encrypt(parsed_data),
-         :ok <- check_objects(parsed_data) do
-         #{:ok, parsed_objects} <- parse_objects(parsed_data)
-         parse_objects(parsed_data)
+         :ok <- check_objects(parsed_data),
+         {:ok, parsed_objects} <- parse_objects(parsed_data) do
+         build_dictionary(parsed_data, parsed_objects)
     else
       {:error, reason} -> {:error, reason}
     end
@@ -46,8 +38,21 @@ defmodule Expdf do
     if xref.trailer.encrypt, do: {:error, "Secured pdf file are currently not supported."}, else: :ok
   end
 
+  def build_dictionary(parser, objects) do
+    dictionary = objects
+    |> Enum.map(fn {id, object} ->
+      {type, header, _} = object
+      case Header.get(parser, header, "Type") do
+        {:ok, header, nil} -> nil
+        {:ok, header, obj} -> {Element.content(obj), id, object}
+      end
+    end)
+    |> Enum.filter(fn val -> !is_nil(val) end)
+    |> Enum.group_by(fn {type, id, object} -> type end)
+  end
+
   defp parse_objects(%Parser{objects: objects} = parser) do
-    objects
+    objects = objects
     |> Enum.reduce(%{}, fn {id, structure}, acc ->
       {header, content, new_objects} = structure
       |> Enum.with_index
@@ -66,7 +71,7 @@ defmodule Expdf do
           "stream" ->
             obj_content = Enum.at(obj_content, 0, obj_val)
             case Header.get(parser, header, "Type") do
-              {:ok, header, %ElementMissing{}} ->
+              {:ok, header, nil} ->
                 {header, content, [], false}
               {:ok, obj} ->
                 if obj.val == "ObjStm" do
@@ -121,6 +126,17 @@ defmodule Expdf do
         end)
       end
     end)
+    objects = objects
+    |> Map.keys
+    |> Enum.sort(fn id1, id2 ->
+      [i1, _] = String.split(id1, "_")
+      [i2, _] = String.split(id2, "_")
+      String.to_integer(i1) < String.to_integer(i2)
+    end)
+    |> Enum.map(fn id ->
+      {id, Map.get(objects, id)}
+    end)
+    {:ok, objects}
   end
 
   defp parse_header(structure) do
@@ -139,35 +155,32 @@ defmodule Expdf do
     case type do
       "<<" -> parse_header(val)
 
-      "numeric" -> [:numeric, float_val(val)]
+      "numeric" -> {:numeric, float_val(val), 0}
 
-      "boolean" -> [:boolean, String.downcase(val) == "true"]
+      "boolean" -> {:boolean, String.downcase(val) == "true", 0}
 
       "null" -> nil
 
       "(" ->
         val = "(#{val})"
-        case ElementParser.parse(:date, val) do
-          false ->
-            ElementParser.parse(:string, val)
-          {date, _} ->
-            date
+        case Element.parse(:date, val) do
+          false -> Element.parse(:string, val)
+          date -> date
         end
 
       "<" ->
         parse_header_element("(", ElementHexa.decode(val))
 
       "/" ->
-        {element, _} = ElementName.parse("/#{val}")
-        element
+        Element.parse(:name, "/#{val}")
 
       "[" ->
         values = Enum.reduce(val, [], fn {sub_type, sub_val, _, _}, acc ->
           [parse_header_element(sub_type, sub_val) | acc]
         end)
-        %ElementArray{val: Enum.reverse(values)}
+        {:array, Enum.reverse(values), 0}
 
-      "objref" -> %ElementXref{val: val}
+      "objref" -> {:xref, val, 0}
       "endstream" -> nil
       "obj" -> nil
       "" -> nil

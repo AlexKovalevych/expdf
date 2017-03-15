@@ -1,8 +1,4 @@
 defmodule Expdf.ElementHexa do
-  @derive [Expdf.Element]
-
-  defstruct [:val]
-
   def decode(value) do
     text = case String.slice(value, 0, 2) do
       "00" ->

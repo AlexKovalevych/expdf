@@ -8,57 +8,37 @@ defmodule Expdf.Object do
     case Header.get(parser, header, "Type") do
       {:error, reason} -> {:error, reason}
       {:ok, header, obj} ->
-      IO.inspect(Expdf.Element.content(obj))
-        case Expdf.Element.content(obj) do
+        case Element.content(obj) do
           "XObject" ->
             case Header.get(parser, header, "Subtype") do
               {:ok, header, obj} ->
                 case Element.content(obj) do
-                  "Image" ->
+                  "Image" -> {:image, header, content}
+                  "Form" -> {:form, header, content}
+                  _ -> {:object, header, content}
                 end
-                IO.inspect(val)
               _ ->
-                %__MODULE__{content: content, header: header}
+                {:object, header, content}
             end
-          _ -> %__MODULE__{content: content, header: header}
+
+          "Pages" -> {:pages, header, content}
+          "Page" -> {:page, header, content}
+          "Encoding" -> {:encoding, header, content}
+          "Font" ->
+            subtype = case Header.get(parser, header, "Subtype") do
+              {:ok, _, obj} ->
+                subtype = Element.content(obj)
+                if Enum.member?(~w(CIDFontType0 CIDFontType2 TrueType Type0 Type1), subtype) do
+                  subtype
+                else
+                  nil
+                end
+              _ -> nil
+            end
+            type = if subtype, do: "font_#{subtype}" |> String.to_atom(), else: :font
+            {type, header, content}
+          _ -> {:object, header, content}
         end
     end
-
-        #switch ($header->get('Type')->getContent()) {
-            #case 'XObject':
-                #switch ($header->get('Subtype')->getContent()) {
-                    #case 'Image':
-                        #return new Image($document, $header, $content);
-
-                    #case 'Form':
-                        #return new Form($document, $header, $content);
-
-                    #default:
-                        #return new Object($document, $header, $content);
-                #}
-                #break;
-
-            #case 'Pages':
-                #return new Pages($document, $header, $content);
-
-            #case 'Page':
-                #return new Page($document, $header, $content);
-
-            #case 'Encoding':
-                #return new Encoding($document, $header, $content);
-
-            #case 'Font':
-                #$subtype   = $header->get('Subtype')->getContent();
-                #$classname = '\Smalot\PdfParser\Font\Font' . $subtype;
-
-                #if (class_exists($classname)) {
-                    #return new $classname($document, $header, $content);
-                #} else {
-                    #return new Font($document, $header, $content);
-                #}
-
-            #default:
-                #return new Object($document, $header, $content);
-        #}
   end
 end

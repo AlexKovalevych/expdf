@@ -1,11 +1,6 @@
 defmodule Expdf.Header do
-  alias Expdf.{
-    ElementXref,
-    ElementArray,
-    ElementStruct,
-    ElementMissing,
-    Parser
-  }
+  alias Expdf.Parser
+  alias Expdf.Element
   import String, only: [to_atom: 1]
 
   defstruct elements: []
@@ -14,7 +9,7 @@ defmodule Expdf.Header do
     name = to_atom(name)
     case Keyword.get(elements, name) do
       nil ->
-        {:ok, header, %ElementMissing{}}
+        {:ok, header, nil}
       element ->
         case resolve_xref(parser, element, name) do
           {:error, reason} -> {:error, reason}
@@ -25,10 +20,10 @@ defmodule Expdf.Header do
 
   def parse(content, parser, position \\ 0) do
     if String.slice(String.trim(content), 0, 2) == "<<" do
-      ElementStruct.parse(content, parser, position)
+      Element.parse(:struct, content, position)
     else
-      case ElementArray.parse(content, parser, position) do
-        {%ElementArray{val: elements}, offset} ->
+      case Element.parse(:array, content, position) do
+        {:array, elements, offset} ->
           %__MODULE__{elements: elements}
         _ ->
           %__MODULE__{}
@@ -36,7 +31,7 @@ defmodule Expdf.Header do
     end
   end
 
-  defp resolve_xref(%Parser{objects: objects}, %ElementXref{} = element, name) do
+  defp resolve_xref(%Parser{objects: objects}, {:xref, val, offset}, name) do
     case Keyword.get(objects, name) do
       nil -> {:error, "Missing object reference # #{name}"}
       obj -> {:ok, obj}
