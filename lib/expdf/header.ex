@@ -1,6 +1,8 @@
 defmodule Expdf.Header do
   alias Expdf.{
     ElementXref,
+    ElementArray,
+    ElementStruct,
     ElementMissing,
     Parser
   }
@@ -18,6 +20,19 @@ defmodule Expdf.Header do
           {:error, reason} -> {:error, reason}
           {:ok, obj} -> {:ok, %{header | elements: Keyword.put(elements, name, obj)}, obj}
         end
+    end
+  end
+
+  def parse(content, parser, position \\ 0) do
+    if String.slice(String.trim(content), 0, 2) == "<<" do
+      ElementStruct.parse(content, parser, position)
+    else
+      case ElementArray.parse(content, parser, position) do
+        {%ElementArray{val: elements}, offset} ->
+          %__MODULE__{elements: elements}
+        _ ->
+          %__MODULE__{}
+      end
     end
   end
 

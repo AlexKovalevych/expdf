@@ -11,6 +11,6 @@ defimpl Expdf.Element, for: Any do
 end
 
 defmodule Expdf.ElementParser do
-  def parse(content, document, position, only_values) do
+  def parse(content, document, position, only_values \\ false) do
   end
 end

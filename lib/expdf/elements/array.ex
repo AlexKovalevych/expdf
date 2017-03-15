@@ -5,7 +5,7 @@ defmodule Expdf.ElementArray do
 
   @derive [Expdf.Element]
 
-  def parse(content, document, offset \\ 0) do
+  def parse(content, parser, offset \\ 0) do
     case Regex.named_captures(~r/^\s*\[(?P<array>.*)/is, content) do
       nil -> false
       %{"array" => array} ->
@@ -21,7 +21,7 @@ defmodule Expdf.ElementArray do
         # Removes 1 level [ and ].
         sub = String.trim(sub)
         sub = String.slice(sub, 1..String.length(sub) - 2)
-        values = ElementParser.parse(sub, document, 0, true)
+        values = ElementParser.parse(sub, parser, 0, true)
         offset = case :binary.match(content, "[") do
           {pos, 1} -> offset + pos + 1
           :nomatch -> offset

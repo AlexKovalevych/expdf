@@ -8,7 +8,11 @@ defmodule Expdf do
     ElementXref,
     ElementString,
     ElementBoolean,
-    ElementArray
+    ElementNumeric,
+    ElementNil,
+    ElementArray,
+    ElementMissing,
+    ElementHexa,
   }
 
   @doc """
@@ -45,35 +49,76 @@ defmodule Expdf do
   defp parse_objects(%Parser{objects: objects} = parser) do
     objects
     |> Enum.reduce(%{}, fn {id, structure}, acc ->
-      #if id == :"5_0" do
-        #IO.inspect(structure)
-        #System.halt()
-      #end
-      {header, content} = structure
+      {header, content, new_objects} = structure
       |> Enum.with_index
-      |> Enum.reduce_while({%Header{}, ""}, fn {part, i}, {header, content} ->
-        {obj_type, obj_val, obj_offset, content} = part
-        {new_header, new_content, break} = case obj_type do
+      |> Enum.reduce_while({%Header{}, "", []}, fn {part, i}, {header, content, new_objects} ->
+        {obj_type, obj_val, obj_offset, obj_content} = part
+        {new_header, new_content, new_objects, break} = case obj_type do
           "[" ->
             elements = Enum.reduce(obj_val, [], fn sub_element, elements ->
-              IO.inspect(sub_element)
-              System.halt()
+              {sub_type, sub_val, sub_offset, sub_content} = sub_element
+              [parse_header_element(sub_type, sub_val) | elements]
             end)
+            |> Enum.reverse()
+            {%Header{elements: elements}, content, [], false}
           "<<" ->
-            {parse_header(obj_val), "", false}
+            {parse_header(obj_val), "", [], false}
           "stream" ->
-            content = Enum.at(content, 0, obj_val)
-            IO.inspect(header)
-            #IO.inspect(objects)
-              System.halt()
+            obj_content = Enum.at(obj_content, 0, obj_val)
+            case Header.get(parser, header, "Type") do
+              {:ok, header, %ElementMissing{}} ->
+                {header, content, [], false}
+              {:ok, obj} ->
+                if obj.val == "ObjStm" do
+                  matches = Regex.run(~r/^((\d+\s+\d+\s*)*)(.*)$/s, content)
+                  new_content = matches |> Enum.at(3)
+
+                  # Extract xrefs
+                  table = Regex.split(~r/(\d+\s+\d+\s*)/s, Enum.at(matches, 1), [:trim, :include_captures])
+                          |> Enum.into(%{}, fn xref ->
+                            [id, position] = String.split(String.trim(xref), " ")
+                            {position, id}
+                          end)
+                  positions = Map.keys(table) |> Enum.sort
+
+                  new_objects = positions
+                  |> Enum.with_index
+                  |> Enum.map(fn {position, i} ->
+                    id = "#{Map.get(table, position) |> to_string}_0"
+                    next_position = Enum.at(positions, i + 1, byte_size(content))
+                    sub_content = String.slice(content, position, next_position - position)
+                    sub_header = Header.parse(sub_content, parser)
+                    Object.new(parser, sub_header, "")
+                  end)
+                  {header, obj_content, new_objects, true}
+                else
+                  {header, obj_content, [], false}
+                end
+              _ ->
+                {header, content, [], false}
+            end
+          _ ->
+            element = parse_header_element(obj_type, obj_val)
+            if element do
+              {%Header{elements: [element]}, content, [], false}
+            else
+              {header, content, [], false}
+            end
         end
-        if break, do: {:halt, {header, content}}, else: {:cont, {header, content}}
+        if break, do: {:halt, {new_header, new_content, new_objects}}, else: {:cont, {new_header, new_content, new_objects}}
       end)
-      if !Map.has_key?(acc, id) do
-        obj = Object.new(parser, header, content)
-        Map.put(acc, id, obj)
+      if Enum.empty?(new_objects) do
+        case Map.has_key?(acc, id) do
+          true -> acc
+          false ->
+            obj = Object.new(parser, header, content)
+            Map.put(acc, id, obj)
+        end
       else
-        acc
+        new_objects
+        |> Enum.map(fn {id, obj} ->
+          Map.put(acc, id, obj)
+        end)
       end
     end)
   end
@@ -94,11 +139,11 @@ defmodule Expdf do
     case type do
       "<<" -> parse_header(val)
 
-      "numeric" -> {:numeric, float_val(val)}
+      "numeric" -> %ElementNumeric{val: float_val(val)}
 
       "boolean" -> %ElementBoolean{val: String.downcase(val) == "true"}
 
-      "null" -> {:null, nil}
+      "null" -> %ElementNil{}
 
       "(" ->
         val = "(#{val})"
@@ -109,6 +154,9 @@ defmodule Expdf do
           {date, _} ->
             date
         end
+
+      "<" ->
+        parse_header_element("(", ElementHexa.decode(val))
 
       "/" ->
         {element, _} = ElementName.parse("/#{val}")
@@ -121,7 +169,9 @@ defmodule Expdf do
         %ElementArray{val: Enum.reverse(values)}
 
       "objref" -> %ElementXref{val: val}
-
+      "endstream" -> nil
+      "obj" -> nil
+      "" -> nil
     end
   end
 

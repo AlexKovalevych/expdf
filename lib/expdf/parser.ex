@@ -394,7 +394,6 @@ defmodule Expdf.Parser do
             decode_xref(data, start_xref, xref)
           _ ->
             # Cross-Reference Stream
-            IO.inspect(2)
             decode_xref_stream(data, start_xref, xref)
         end
     end
