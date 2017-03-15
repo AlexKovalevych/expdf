@@ -139,18 +139,17 @@ defmodule Expdf do
     case type do
       "<<" -> parse_header(val)
 
-      "numeric" -> %ElementNumeric{val: float_val(val)}
+      "numeric" -> [:numeric, float_val(val)]
 
-      "boolean" -> %ElementBoolean{val: String.downcase(val) == "true"}
+      "boolean" -> [:boolean, String.downcase(val) == "true"]
 
-      "null" -> %ElementNil{}
+      "null" -> nil
 
       "(" ->
         val = "(#{val})"
-        case ElementDate.parse(val) do
+        case ElementParser.parse(:date, val) do
           false ->
-            {element, _} = ElementString.parse(val)
-            element
+            ElementParser.parse(:string, val)
           {date, _} ->
             date
         end

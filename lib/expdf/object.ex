@@ -1,15 +1,27 @@
 defmodule Expdf.Object do
   alias Expdf.Header
+  alias Expdf.Element
 
   defstruct [:content, :header]
 
   def new(parser, header, content) do
     case Header.get(parser, header, "Type") do
       {:error, reason} -> {:error, reason}
-      {:ok, header, obj} -> case Expdf.Element.content(obj) do
-        #"XObject" ->
-        _ -> %__MODULE__{content: content, header: header}
-      end
+      {:ok, header, obj} ->
+      IO.inspect(Expdf.Element.content(obj))
+        case Expdf.Element.content(obj) do
+          "XObject" ->
+            case Header.get(parser, header, "Subtype") do
+              {:ok, header, obj} ->
+                case Element.content(obj) do
+                  "Image" ->
+                end
+                IO.inspect(val)
+              _ ->
+                %__MODULE__{content: content, header: header}
+            end
+          _ -> %__MODULE__{content: content, header: header}
+        end
     end
 
         #switch ($header->get('Type')->getContent()) {
