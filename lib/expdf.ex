@@ -1,5 +1,6 @@
 defmodule Expdf do
   alias Expdf.{
+    Document,
     Parser,
     Header,
     Object,
@@ -23,8 +24,8 @@ defmodule Expdf do
     with {:ok, parsed_data} <- Parser.parse(data),
          :ok <- check_encrypt(parsed_data),
          :ok <- check_objects(parsed_data),
-         {:ok, parsed_objects} <- parse_objects(parsed_data) do
-         build_dictionary(parsed_data, parsed_objects)
+         {:ok, parsed_data} <- parse_objects(parsed_data) do
+         create_document(parsed_data)
     else
       {:error, reason} -> {:error, reason}
     end
@@ -38,8 +39,8 @@ defmodule Expdf do
     if xref.trailer.encrypt, do: {:error, "Secured pdf file are currently not supported."}, else: :ok
   end
 
-  def build_dictionary(parser, objects) do
-    dictionary = objects
+  def create_document(%Parser{elements: elements} = parser) do
+    dictionary = elements
     |> Enum.map(fn {id, object} ->
       {type, header, _} = object
       case Header.get(parser, header, "Type") do
@@ -49,10 +50,50 @@ defmodule Expdf do
     end)
     |> Enum.filter(fn val -> !is_nil(val) end)
     |> Enum.group_by(fn {type, id, object} -> type end)
+    document = %Document{dictionary: dictionary, trailer: parse_trailer(parser.xref.trailer)}
+    Document.parse_details(parser, document)
+  end
+
+  defp parse_trailer(structure) when is_list(structure) do
+    trailer = structure
+    |> Enum.filter(&(!is_nil(&1)))
+    |> Enum.with_index
+    |> Enum.reduce(Keyword.new(), fn {values, i}, acc ->
+      name = i |> to_string |> String.to_atom
+      value = cond do
+        is_number(values) -> {:numeric, values}
+        is_list(values) -> {:array, parse_trailer(values)}
+        String.match?(values, ~r/_/) -> {:xref, values}
+        true -> parse_header_element("(", values)
+      end
+      Keyword.put(acc, name, value)
+    end)
+    %Header{elements: trailer}
+  end
+
+  defp parse_trailer(structure) when is_map(structure) do
+    trailer = structure
+    |> Enum.filter(fn val ->
+      case val do
+        {name, values} -> !is_nil(values)
+        _ -> !is_nil(val)
+      end
+    end)
+    |> Enum.reduce(Keyword.new(), fn {name, values}, acc ->
+      name = name |> to_string |> String.capitalize |> String.to_atom
+      value = cond do
+        is_number(values) -> {:numeric, values}
+        is_list(values) -> {:array, parse_trailer(values)}
+        String.match?(values, ~r/_/) -> {:xref, values}
+        true -> parse_header_element("(", values)
+      end
+      Keyword.put(acc, name, value)
+    end)
+    %Header{elements: trailer}
   end
 
   defp parse_objects(%Parser{objects: objects} = parser) do
-    objects = objects
+    elements = objects
     |> Enum.reduce(%{}, fn {id, structure}, acc ->
       {header, content, new_objects} = structure
       |> Enum.with_index
@@ -126,17 +167,17 @@ defmodule Expdf do
         end)
       end
     end)
-    objects = objects
+    elements = elements
     |> Map.keys
     |> Enum.sort(fn id1, id2 ->
-      [i1, _] = String.split(id1, "_")
-      [i2, _] = String.split(id2, "_")
+      [i1, _] = String.split(to_string(id1), "_")
+      [i2, _] = String.split(to_string(id2), "_")
       String.to_integer(i1) < String.to_integer(i2)
     end)
     |> Enum.map(fn id ->
-      {id, Map.get(objects, id)}
+      {id, Map.get(elements, id)}
     end)
-    {:ok, objects}
+    {:ok, %{parser | elements: elements}}
   end
 
   defp parse_header(structure) do
@@ -155,9 +196,9 @@ defmodule Expdf do
     case type do
       "<<" -> parse_header(val)
 
-      "numeric" -> {:numeric, float_val(val), 0}
+      "numeric" -> {:numeric, float_val(val)}
 
-      "boolean" -> {:boolean, String.downcase(val) == "true", 0}
+      "boolean" -> {:boolean, String.downcase(val) == "true"}
 
       "null" -> nil
 
@@ -178,9 +219,9 @@ defmodule Expdf do
         values = Enum.reduce(val, [], fn {sub_type, sub_val, _, _}, acc ->
           [parse_header_element(sub_type, sub_val) | acc]
         end)
-        {:array, Enum.reverse(values), 0}
+        {:array, Enum.reverse(values)}
 
-      "objref" -> {:xref, val, 0}
+      "objref" -> {:xref, val}
       "endstream" -> nil
       "obj" -> nil
       "" -> nil

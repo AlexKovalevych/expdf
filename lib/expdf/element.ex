@@ -20,8 +20,18 @@ defmodule Expdf.Element do
 
   def content(nil), do: ""
 
-  def content({:name, content, _}) do
-    content
+  def content({:string, content}), do: content
+
+  def content({:name, content}), do: content
+
+  def content({:date, content}), do: content
+
+  def details({:object, header}, deep \\ true) do
+    Header.get_details(header, deep)
+  end
+
+  def details({_, value}, _) do
+    to_string(value)
   end
 
   def parse_all(content, offset, only_values? \\ false) when is_binary(content) do
@@ -98,7 +108,7 @@ defmodule Expdf.Element do
 
         # Find next ']' position
         offset = offset + String.length(sub) + 1
-        {:array, values, offset}
+        {:array, values}
     end
   end
 
@@ -121,7 +131,7 @@ defmodule Expdf.Element do
         # Removes '<<' and '>>'.
         sub = String.trim(String.replace(~r/^\s*<<(.*)>>\s*$/s, "\\1", sub))
         elements = parse_all(sub, 0)
-        {:header, %Header{elements: elements}, offset}
+        {:header, %Header{elements: elements}}
     end
   end
 
@@ -131,7 +141,7 @@ defmodule Expdf.Element do
       %{"name" => name} ->
         {pos, _} = :binary.match(content, name)
         offset = offset + pos + byte_size(name)
-        {:name, Font.decode_entities(name), offset}
+        {:name, Font.decode_entities(name)}
     end
   end
 
@@ -158,7 +168,7 @@ defmodule Expdf.Element do
                 {pos, _} -> pos
               end
               offset = offset + pos + byte_size(match_name) + 4 # 1 for '(D:' and ')'
-              {:date, date, offset}
+              {:date, date}
             {:error, _} -> false
           end
         else
@@ -172,7 +182,7 @@ defmodule Expdf.Element do
                   {pos, _} -> pos
                 end
                 offset = offset + pos + byte_size(match_name) + 4 # 1 for '(D:' and ')'
-                {:date, date, offset}
+                {:date, date}
               {:error, _} -> false
             end
           else
@@ -210,7 +220,7 @@ defmodule Expdf.Element do
                |> Font.decode_entities()
                |> Font.decode_hexadecimal(false)
                |> Font.decode_unicode()
-        {:string, name, offset}
+        {:string, name}
     end
   end
 
@@ -220,7 +230,7 @@ defmodule Expdf.Element do
       %{"id" => id} ->
         {pos, _} = :binary.match(content, id)
         offset = offset + pos + byte_size(id)
-        {:xref, :binary.replace(String.trim_trailing(id, " R"), " ", "_"), offset}
+        {:xref, :binary.replace(String.trim_trailing(id, " R"), " ", "_")}
     end
   end
 

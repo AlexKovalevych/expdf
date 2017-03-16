@@ -1,6 +1,6 @@
 defmodule Expdf.Parser do
 
-  defstruct [:xref, :objects]
+  defstruct [:xref, :objects, :elements]
 
   def parse(data) do
     case :binary.match(data, "%PDF-") do
@@ -11,7 +11,7 @@ defmodule Expdf.Parser do
         case get_xref_data(pdf_data) do
           {:error, reason} -> {:error, reason}
           {:ok, xref} ->
-            case get_objects(pdf_data, %__MODULE__{xref: xref, objects: %{}}) do
+            case get_objects(pdf_data, %__MODULE__{xref: xref, objects: Keyword.new()}) do
               {:error, reason} -> {:error, reason}
               struct -> {:ok, %{struct | objects: Enum.reverse(struct.objects)}}
             end
@@ -36,7 +36,7 @@ defmodule Expdf.Parser do
         {:error, reason} ->
           {:halt, {:error, reason}}
         {:ok, new_obj} ->
-          {:cont, %{acc | objects: Map.put(acc.objects, obj, new_obj)}}
+          {:cont, %{acc | objects: Keyword.put(acc.objects, String.to_atom(obj), new_obj)}}
       end
     end)
   end

@@ -5,8 +5,25 @@ defmodule Expdf.Header do
 
   defstruct elements: []
 
-  def get(parser, %__MODULE__{elements: elements} = header, name) do
-    name = to_atom(name)
+  def get_details(%__MODULE__{elements: elements}, deep \\ true) do
+    elements
+    |> Enum.reduce(%{}, fn {key, element}, acc ->
+      case {element, deep} do
+        {%__MODULE__{}, true} -> Map.put(acc, key, Element.details(element, deep))
+        {{:object, _}, true} -> Map.put(acc, key, Element.details(element, false))
+        {{:array, _}, true} -> Map.put(acc, key, Element.details(element))
+        {{:array, _}, false} -> acc
+        _ -> Map.put(acc, key, Element.content(element))
+      end
+    end)
+  end
+
+  def has(%__MODULE__{elements: elements}, name) do
+    Keyword.has_key?(elements, name)
+  end
+
+  def get(parser, %__MODULE__{elements: elements} = header, name) when is_binary(name) do
+    name = String.to_atom(name)
     case Keyword.get(elements, name) do
       nil ->
         {:ok, header, nil}
@@ -31,8 +48,8 @@ defmodule Expdf.Header do
     end
   end
 
-  defp resolve_xref(%Parser{objects: objects}, {:xref, val, offset}, name) do
-    case Keyword.get(objects, name) do
+  defp resolve_xref(%Parser{objects: objects, elements: elements}, {:xref, val}, name) do
+    case Keyword.get(elements, String.to_atom(val)) do
       nil -> {:error, "Missing object reference # #{name}"}
       obj -> {:ok, obj}
     end
